@@ -1,0 +1,23 @@
+{
+  "name": "conversational-health-voice-ai-server",
+  "version": "1.0.0",
+  "description": "Backend server for real-time Conversational Voice AI Health Screening (Node.js & JavaScript)",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "conversational-health-voice-ai": "file:..",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "form-data": "^4.0.1",
+    "groq-sdk": "^0.15.0",
+    "multer": "^1.4.5-lts.1",
+    "openai": "^4.85.4",
+    "ws": "^8.18.0"
+  }
+}
