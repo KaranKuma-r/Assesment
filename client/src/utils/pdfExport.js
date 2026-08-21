@@ -54,7 +54,7 @@ export function exportReportToPDF(report) {
   doc.text(`TRIAGE RISK LEVEL: ${risk}  |  RECOMMENDED URGENCY: ${report.triageAssessment?.recommendedUrgency || 'Next Day Clinic'}`, margin + 4, y + 7);
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Completion Status: ${(report.completionStatus || 'Complete').toUpperCase()} (${report.completionPercentage || 95}% Intact)`, margin + 4, y + 13);
+  doc.text(`Completion Status: ${(report.completionStatus || 'Complete').toUpperCase()} (${report.completionPercentage ?? 95}% complete)`, margin + 4, y + 13);
 
   y += 24;
 
@@ -89,7 +89,11 @@ export function exportReportToPDF(report) {
   y += 5;
   doc.text(`Onset & Duration: ${report.historyOfPresentIllness?.onsetAndDuration || 'Not specified'}`, margin, y);
   y += 5;
-  doc.text(`Pain/Discomfort Severity: ${report.historyOfPresentIllness?.severityScore || 5}/10 (${report.historyOfPresentIllness?.severityClassification || 'Moderate'})`, margin, y);
+  const severityScore = report.historyOfPresentIllness?.severityScore;
+  const severityLabel = Number.isFinite(severityScore) && severityScore > 0
+    ? `${severityScore}/10 (${report.historyOfPresentIllness?.severityClassification || 'Unspecified'})`
+    : 'Not assessed';
+  doc.text(`Pain/Discomfort Severity: ${severityLabel}`, margin, y);
   y += 5;
   if (report.historyOfPresentIllness?.symptomCharacteristics) {
     doc.text(`Characteristics: ${report.historyOfPresentIllness.symptomCharacteristics}`, margin, y);

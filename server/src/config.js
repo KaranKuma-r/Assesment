@@ -1,9 +1,15 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Load .env from workspace root and server directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load .env from workspace root, server directory, and current working directory
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), 'server/.env') });
 
 export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
@@ -21,12 +27,12 @@ export const config = {
   ttsProvider: process.env.TTS_PROVIDER || '',
 
   // Models
-  groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+  groqModel: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
   openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
 
   // Voice configurations
   openaiVoice: process.env.OPENAI_VOICE || 'nova', // alloy, nova, shimmer, echo
-  sarvamVoice: process.env.SARVAM_VOICE || 'ananya', // ananya, meera, arvind
+  sarvamVoice: process.env.SARVAM_VOICE || 'anushka', // anushka, priya, neha, pooja, simran
 
   defaultLanguage: process.env.DEFAULT_LANGUAGE || 'auto', // 'auto' | 'en' | 'hi'
   

@@ -83,7 +83,8 @@ function createFallbackReport(transcript, state, durationSec) {
   let completionStatus = 'minimal';
   let completionPercentage = 20;
 
-  if (turnsCount >= 5 || state.isComplete) {
+  const hasCoreIntakeDetails = Boolean(state.mainConcern && state.duration && state.severity);
+  if (turnsCount >= 5 && hasCoreIntakeDetails) {
     completionStatus = 'complete';
     completionPercentage = 95;
   } else if (turnsCount >= 2) {
@@ -94,7 +95,9 @@ function createFallbackReport(transcript, state, durationSec) {
   const patientName = state.patientName || (userTurns[0]?.content?.split(' ')[0]) || 'Patient';
   const chief = state.mainConcern || (userTurns[1]?.content) || 'General health inquiry / Unspecified symptom';
   const duration = state.duration || 'Not specified during call';
-  const severity = state.severity || 'Unrated';
+  const severity = state.severity || '';
+  const severityScoreMatch = String(severity).match(/\b(10|[1-9])\b/);
+  const severityScore = severityScoreMatch ? Number(severityScoreMatch[1]) : null;
   const associated = state.associatedSymptoms || [];
 
   return {
@@ -117,27 +120,28 @@ function createFallbackReport(transcript, state, durationSec) {
     },
     historyOfPresentIllness: {
       onsetAndDuration: duration,
-      severityScore: typeof severity === 'number' ? severity : (severity.includes('6') ? 6 : 5),
-      severityClassification: severity.includes('Severe') ? 'Severe' : 'Moderate',
-      symptomCharacteristics: state.symptomCharacter || 'Throbbing / Discomfort reported by patient',
-      triggersOrAggravatingFactors: 'Not fully evaluated during screening',
-      relievingFactors: 'Paracetamol / Rest reported by patient',
+      severityScore,
+      severityClassification: severityScore ? (severityScore >= 8 ? 'Severe' : severityScore >= 5 ? 'Moderate' : 'Mild') : 'Not assessed',
+      symptomCharacteristics: state.symptomCharacter || 'Not assessed during screening',
+      triggersOrAggravatingFactors: 'Not evaluated during screening',
+      relievingFactors: state.relievingFactors || 'None reported during intake',
     },
-    associatedSymptoms: associated.length > 0 ? associated : ['Mild fever / light sensitivity reported'],
+    associatedSymptoms: associated,
     medicalBackground: {
       knownConditions: state.medicalHistory || ['None reported'],
-      currentMedications: state.medications || ['Over-the-counter analgesic'],
-      knownAllergies: state.allergies || ['No known drug allergies (NKDA)'],
+      currentMedications: state.medications || ['None reported'],
+      knownAllergies: state.allergies || ['No known allergies reported'],
     },
     triageAssessment: {
-      riskLevel: 'MODERATE',
-      recommendedUrgency: 'Next Day Clinic',
-      clinicalRationale: 'Patient reports symptomatic discomfort. Call completed intake with stable vital indicators but requires doctor follow-up for physical examination.',
+      riskLevel: turnsCount < 2 ? 'LOW' : 'MODERATE',
+      recommendedUrgency: turnsCount < 2 ? 'Routine (Within 48h)' : 'Next Day Clinic',
+      clinicalRationale: turnsCount < 2
+        ? 'The call ended before enough information was collected to assess urgency. No triage conclusion can be made from this brief interaction.'
+        : 'Limited symptom information was collected. A clinician should review the concern if it persists or worsens.',
       identifiedRedFlags: [],
     },
     recommendedActionItems: [
-      'Schedule physician telemedicine or in-person consultation.',
-      'Maintain hydration and monitor temperature changes.',
+      turnsCount < 2 ? 'Repeat the screening or contact a clinician if you have a health concern.' : 'Schedule a clinician review if symptoms persist or worsen.',
       'Seek urgent medical care if severe pain, shortness of breath, or sudden deterioration occurs.'
     ],
     doctorClinicalNote: `Patient ${patientName} participated in AI voice screening reporting ${chief} of duration ${duration}. Intake status: ${completionStatus}. Patient advised on red flags and physician follow-up scheduled.`,
@@ -185,8 +189,8 @@ export async function generateHealthReport({
       },
       historyOfPresentIllness: {
         onsetAndDuration: 'N/A',
-        severityScore: 0,
-        severityClassification: 'Mild',
+        severityScore: null,
+        severityClassification: 'Not assessed',
         symptomCharacteristics: 'N/A',
         triggersOrAggravatingFactors: 'N/A',
         relievingFactors: 'N/A',
@@ -280,8 +284,8 @@ Synthesize the structured JSON report now:
       },
       historyOfPresentIllness: parsed.historyOfPresentIllness || {
         onsetAndDuration: screeningState.duration || 'Recent',
-        severityScore: 5,
-        severityClassification: 'Moderate',
+        severityScore: null,
+        severityClassification: 'Not assessed',
       },
       associatedSymptoms: parsed.associatedSymptoms || screeningState.associatedSymptoms || [],
       medicalBackground: parsed.medicalBackground || {

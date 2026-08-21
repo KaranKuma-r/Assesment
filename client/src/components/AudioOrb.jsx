@@ -15,21 +15,21 @@ export function AudioOrb({
   useAudioVisualizer(canvasRef, mediaStream, isAiSpeaking, isUserSpeaking);
 
   let statusText = 'Ready to listen';
-  let statusColor = 'text-slate-400';
-  let orbGlow = 'from-slate-700/20 to-slate-900/40 border-slate-700/50';
+  let statusColor = 'text-slate-500';
+  let orbGlow = 'from-slate-100 via-slate-50 to-white border-slate-200 shadow-soft-sm';
 
   if (isThinking) {
     statusText = thinkingStatus || 'Clinical AI is processing...';
-    statusColor = 'text-amber-400';
-    orbGlow = 'from-amber-500/30 to-orange-500/20 border-amber-500/50 glow-brand';
+    statusColor = 'text-amber-700';
+    orbGlow = 'from-amber-100 via-amber-50 to-white border-amber-300 shadow-soft';
   } else if (isAiSpeaking) {
     statusText = 'AuraHealth AI is speaking...';
-    statusColor = 'text-brand-400';
-    orbGlow = 'from-teal-500/40 to-brand-600/30 border-brand-400/60 glow-brand-lg';
+    statusColor = 'text-teal-700 font-semibold';
+    orbGlow = 'from-teal-100 via-teal-50 to-white border-teal-300 shadow-soft-teal';
   } else if (isUserSpeaking) {
     statusText = 'Listening to you...';
-    statusColor = 'text-indigo-400';
-    orbGlow = 'from-indigo-500/40 to-blue-600/30 border-indigo-400/60 shadow-lg shadow-indigo-500/30';
+    statusColor = 'text-indigo-700 font-semibold';
+    orbGlow = 'from-indigo-100 via-indigo-50 to-white border-indigo-300 shadow-soft-indigo';
   }
 
   return (
@@ -41,39 +41,39 @@ export function AudioOrb({
         {/* Ripple Rings when Speaking */}
         {isAiSpeaking && (
           <>
-            <div className="absolute inset-0 rounded-full bg-brand-500/20 animate-ping opacity-60 pointer-events-none" />
-            <div className="absolute -inset-4 rounded-full border border-brand-500/40 animate-pulse pointer-events-none" />
+            <div className="absolute inset-0 rounded-full bg-teal-200/50 animate-ping opacity-60 pointer-events-none" />
+            <div className="absolute -inset-4 rounded-full border border-teal-300 animate-pulse pointer-events-none" />
           </>
         )}
 
         {isUserSpeaking && (
           <>
-            <div className="absolute inset-0 rounded-full bg-indigo-500/25 animate-ping opacity-75 pointer-events-none" />
-            <div className="absolute -inset-3 rounded-full border border-indigo-400/50 animate-pulse pointer-events-none" />
+            <div className="absolute inset-0 rounded-full bg-indigo-200/50 animate-ping opacity-75 pointer-events-none" />
+            <div className="absolute -inset-3 rounded-full border border-indigo-300 animate-pulse pointer-events-none" />
           </>
         )}
 
         {/* Animated Inner Glowing Sphere */}
         <div
-          className={`relative w-44 h-44 sm:w-48 sm:h-48 rounded-full bg-gradient-to-tr ${orbGlow} backdrop-blur-xl border flex flex-col items-center justify-center transition-all duration-500 shadow-2xl`}
+          className={`relative w-44 h-44 sm:w-48 sm:h-48 rounded-full bg-gradient-to-tr ${orbGlow} backdrop-blur-xl border flex flex-col items-center justify-center transition-all duration-500`}
         >
           {/* Central Icon */}
           <div className="mb-2">
             {isAiSpeaking ? (
-              <Volume2 className="w-10 h-10 text-brand-300 animate-bounce" />
+              <Volume2 className="w-10 h-10 text-teal-600 animate-bounce" />
             ) : isUserSpeaking ? (
-              <Mic className="w-10 h-10 text-indigo-300 animate-pulse" />
+              <Mic className="w-10 h-10 text-indigo-600 animate-pulse" />
             ) : isThinking ? (
-              <Sparkles className="w-10 h-10 text-amber-300 animate-spin" />
+              <Sparkles className="w-10 h-10 text-amber-600 animate-spin" />
             ) : (
-              <div className="w-10 h-10 rounded-full bg-slate-800/80 border border-slate-700 flex items-center justify-center">
-                <Mic className="w-5 h-5 text-slate-400" />
+              <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
+                <Mic className="w-5 h-5 text-slate-500" />
               </div>
             )}
           </div>
 
           {/* Active Language Badge */}
-          <span className="text-[11px] font-semibold tracking-wider uppercase px-2.5 py-0.5 rounded-full bg-slate-900/80 border border-slate-700 text-slate-300">
+          <span className="text-[11px] font-semibold tracking-wider uppercase px-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700 shadow-soft-sm">
             {activeLanguage === 'hi' ? '🇮🇳 Hindi' : '🇺🇸 English'}
           </span>
         </div>
@@ -86,7 +86,7 @@ export function AudioOrb({
           ref={canvasRef}
           width={280}
           height={56}
-          className="w-full h-full rounded-lg bg-slate-900/40 border border-slate-800/60"
+          className="w-full h-full rounded-xl bg-slate-50 border border-slate-200"
         />
       </div>
 
@@ -99,11 +99,13 @@ export function AudioOrb({
 
       {/* Latest Spoken Caption */}
       {latestMessage && (
-        <div className="mt-4 max-w-lg px-4 py-2.5 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-200 text-sm leading-relaxed shadow-sm">
-          <span className="text-xs font-bold text-slate-400 mr-2 uppercase tracking-wide">
+        <div className="mt-4 max-w-lg px-4 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-700 text-sm leading-relaxed shadow-soft-sm">
+          <span className="text-xs font-bold text-slate-500 mr-2 uppercase tracking-wide">
             {latestMessage.role === 'assistant' ? 'AI Agent' : 'You'}:
           </span>
-          <span className="italic">"{latestMessage.content}"</span>
+          <span className="italic">
+            "{latestMessage.content.replace(/```(?:json)?[\s\S]*?```/g, '').replace(/\{[\s\S]*?"(?:extracted|stage|patientName)"[\s\S]*?\}/g, '').trim()}"
+          </span>
         </div>
       )}
 

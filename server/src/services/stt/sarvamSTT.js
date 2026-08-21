@@ -13,8 +13,8 @@ export async function transcribeWithSarvam(audioBuffer, languageHint = 'hi') {
 
     const form = new FormData();
     form.append('file', audioBuffer, {
-      filename: 'audio.wav',
-      contentType: 'audio/wav',
+      filename: 'audio.webm',
+      contentType: 'audio/webm',
     });
 
     const langCode = languageHint === 'en' ? 'en-IN' : 'hi-IN';

@@ -2,13 +2,20 @@ import axios from 'axios';
 import { config } from '../../config.js';
 import { logger } from '../../utils/logger.js';
 
-export async function synthesizeWithSarvam(text, language = 'hi', speaker = 'ananya') {
+export async function synthesizeWithSarvam(text, language = 'hi', speaker = 'anushka') {
   try {
     if (!config.sarvamApiKey) {
       throw new Error('Sarvam API key is not configured');
     }
 
-    logger.voice('Synthesizing speech with Sarvam AI Bulbul TTS...', { speaker, language });
+    // Supported female/male speakers for bulbul:v2
+    const validSpeakers = ['anushka', 'priya', 'neha', 'pooja', 'simran', 'kavya', 'manisha', 'vidya', 'arya', 'aditya', 'rahul', 'rohan', 'amit', 'dev'];
+    let chosenSpeaker = speaker || config.sarvamVoice || 'anushka';
+    if (!validSpeakers.includes(chosenSpeaker)) {
+      chosenSpeaker = 'anushka';
+    }
+
+    logger.voice('Synthesizing speech with Sarvam AI Bulbul TTS...', { speaker: chosenSpeaker, language });
 
     const langCode = language === 'hi' ? 'hi-IN' : 'en-IN';
     const response = await axios.post(
@@ -16,13 +23,13 @@ export async function synthesizeWithSarvam(text, language = 'hi', speaker = 'ana
       {
         inputs: [text],
         target_language_code: langCode,
-        speaker: speaker || config.sarvamVoice || 'ananya',
+        speaker: chosenSpeaker,
         pitch: 0,
         pace: 1.05,
         loudness: 1.2,
         speech_sample_rate: 22050,
         enable_preprocessing: true,
-        model: 'bulbul:v1'
+        model: 'bulbul:v2'
       },
       {
         headers: {

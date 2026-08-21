@@ -10,11 +10,9 @@
     "dev:client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
     "start": "npm --prefix server run start",
-    "generate-pdf": "node docs/generate-pdf.js",
     "install:all": "npm install && npm --prefix server install && npm --prefix client install"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2",
-    "pdfkit": "^0.16.0"
+    "concurrently": "^8.2.2"
   }
 }

@@ -10,7 +10,8 @@ export function useVoiceCall() {
   const [isMuted, setIsMuted] = useState(false);
   const [languageMode, setLanguageMode] = useState('auto'); // 'auto' | 'en' | 'hi'
   const [activeLanguage, setActiveLanguage] = useState('en');
-  const [callMode, setCallMode] = useState('push-to-talk'); // 'push-to-talk' | 'vad'
+  const [callMode, setCallMode] = useState('vad'); // 'vad' (Hands-Free default) | 'push-to-talk'
+  const [interimText, setInterimText] = useState('');
 
   const [transcript, setTranscript] = useState([]);
   const [screeningState, setScreeningState] = useState({
@@ -34,6 +35,7 @@ export function useVoiceCall() {
   const wsRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  const recognitionRef = useRef(null);
   const audioQueueRef = useRef([]);
   const currentAudioRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -46,7 +48,9 @@ export function useVoiceCall() {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:5000/ws`;
+    // Same-origin works through Vite's development proxy and reverse proxies in production.
+    // VITE_WS_URL is available when the API is hosted on a separate origin.
+    const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}/ws`;
 
     console.log('Connecting to WebSocket server:', wsUrl);
     const ws = new WebSocket(wsUrl);
@@ -92,11 +96,13 @@ export function useVoiceCall() {
 
       case 'agent_thinking':
         setIsThinking(true);
+        setInterimText('');
         setThinkingStatus(payload?.status === 'transcribing' ? 'Transcribing speech...' : 'Formulating medical response...');
         break;
 
       case 'agent_speaking_start':
         setIsThinking(false);
+        setInterimText('');
         setIsAiSpeaking(true);
         break;
 
@@ -114,6 +120,7 @@ export function useVoiceCall() {
         break;
 
       case 'transcript_update':
+        setInterimText('');
         if (payload?.fullTranscript) {
           setTranscript(payload.fullTranscript);
         } else if (payload?.message) {
@@ -152,6 +159,11 @@ export function useVoiceCall() {
         console.error('Server error:', payload?.message);
         setError(payload?.message || 'A server communication error occurred');
         setIsThinking(false);
+        break;
+
+      case 'turn_ignored':
+        setIsThinking(false);
+        setInterimText('');
         break;
     }
   };
@@ -232,7 +244,7 @@ export function useVoiceCall() {
       return stream;
     } catch (err) {
       console.error('Microphone permission denied:', err);
-      setError('Microphone access is required for voice screening calls. Please allow microphone permissions.');
+      setError('Microphone access is unavailable. You can still start the call and use the Type response option.');
       throw err;
     }
   };
@@ -258,26 +270,28 @@ export function useVoiceCall() {
 
     try {
       await setupMicrophone();
-      connectWebSocket();
-
-      // Wait briefly for WebSocket connection if connecting
-      const checkAndSend = () => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: 'start_call',
-              payload: { languageMode },
-            })
-          );
-        } else {
-          setTimeout(checkAndSend, 150);
-        }
-      };
-
-      checkAndSend();
     } catch (err) {
-      console.error('Failed to start call:', err);
+      // Keep going: the active call UI provides a typed-response fallback.
+      console.warn('Starting text-only call because microphone setup failed:', err);
     }
+
+    connectWebSocket();
+
+    // Wait briefly for WebSocket connection if connecting.
+    const checkAndSend = () => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'start_call',
+            payload: { languageMode },
+          })
+        );
+      } else {
+        setTimeout(checkAndSend, 150);
+      }
+    };
+
+    checkAndSend();
   };
 
   // End Call
@@ -296,6 +310,21 @@ export function useVoiceCall() {
     setIsUserSpeaking(false);
   }, [stopAudioPlayback]);
 
+  const setMuted = useCallback((muted) => {
+    setIsMuted(muted);
+    mediaStreamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = !muted;
+    });
+    if (muted && mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      isRecordingTurnRef.current = false;
+      setIsUserSpeaking(false);
+    }
+  }, []);
+
+  const lastSpeechTextRef = useRef('');
+  const recordedChunksRef = useRef([]);
+
   // Start User Speaking Turn (Push-to-talk press or VAD trigger)
   const startSpeakingTurn = useCallback(async () => {
     if (isAiSpeaking) {
@@ -308,6 +337,38 @@ export function useVoiceCall() {
       const stream = await setupMicrophone();
       isRecordingTurnRef.current = true;
       setIsUserSpeaking(true);
+      lastSpeechTextRef.current = '';
+      recordedChunksRef.current = [];
+
+      // Start Browser Speech Recognition for instant live on-screen transcript
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          if (recognitionRef.current) {
+            try { recognitionRef.current.stop(); } catch(e){}
+          }
+          const rec = new SpeechRecognition();
+          rec.continuous = true;
+          rec.interimResults = true;
+          rec.lang = languageMode === 'hi' ? 'hi-IN' : 'en-US';
+          rec.onresult = (event) => {
+            let transcriptStr = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+              transcriptStr += event.results[i][0].transcript;
+            }
+            if (transcriptStr && transcriptStr.trim()) {
+              const cleaned = transcriptStr.trim();
+              lastSpeechTextRef.current = cleaned;
+              setInterimText(cleaned);
+            }
+          };
+          rec.onerror = () => {};
+          rec.start();
+          recognitionRef.current = rec;
+        } catch (err) {
+          console.warn('SpeechRecognition init skipped:', err);
+        }
+      }
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
@@ -317,18 +378,21 @@ export function useVoiceCall() {
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = async (e) => {
-        if (e.data && e.data.size > 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64Data = reader.result;
-            wsRef.current.send(
-              JSON.stringify({
-                type: 'audio_chunk',
-                payload: { audioBase64: base64Data },
-              })
-            );
-          };
-          reader.readAsDataURL(e.data);
+        if (e.data && e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64Data = reader.result;
+              wsRef.current.send(
+                JSON.stringify({
+                  type: 'audio_chunk',
+                  payload: { audioBase64: base64Data },
+                })
+              );
+            };
+            reader.readAsDataURL(e.data);
+          }
         }
       };
 
@@ -338,7 +402,7 @@ export function useVoiceCall() {
       isRecordingTurnRef.current = false;
       setIsUserSpeaking(false);
     }
-  }, [isAiSpeaking, stopAudioPlayback]);
+  }, [isAiSpeaking, languageMode, stopAudioPlayback]);
 
   // Stop User Speaking Turn (Push-to-talk release or VAD silence detected)
   const stopSpeakingTurn = useCallback(() => {
@@ -347,14 +411,47 @@ export function useVoiceCall() {
     isRecordingTurnRef.current = false;
     setIsUserSpeaking(false);
 
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch(e) {}
+      recognitionRef.current = null;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
 
-    // Give 150ms for last chunk to flush before sending turn end signal
+    const capturedText = lastSpeechTextRef.current;
+
+    // Send complete turn payload with audio blob and captured text
     setTimeout(() => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'audio_turn_end' }));
+        if (recordedChunksRef.current.length > 0) {
+          const fullBlob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            wsRef.current.send(
+              JSON.stringify({
+                type: 'audio_turn_end',
+                payload: {
+                  audioBase64: reader.result,
+                  liveText: capturedText
+                }
+              })
+            );
+          };
+          reader.readAsDataURL(fullBlob);
+        } else {
+          wsRef.current.send(
+            JSON.stringify({
+              type: 'audio_turn_end',
+              payload: {
+                liveText: capturedText
+              }
+            })
+          );
+        }
       }
     }, 150);
   }, []);
@@ -388,6 +485,9 @@ export function useVoiceCall() {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       }
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch(e){}
+      }
     };
   }, [connectWebSocket]);
 
@@ -402,6 +502,7 @@ export function useVoiceCall() {
     languageMode,
     activeLanguage,
     callMode,
+    interimText,
     transcript,
     screeningState,
     report,
@@ -416,7 +517,7 @@ export function useVoiceCall() {
     sendTextMessage,
     setLanguageMode,
     setCallMode,
-    setIsMuted,
+    setIsMuted: setMuted,
     setReport,
   };
 }

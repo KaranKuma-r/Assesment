@@ -8,6 +8,24 @@ import { logger } from '../utils/logger.js';
 // In-memory store for session reports and active sessions
 export const sessionStore = new Map();
 
+function createInitialScreeningState(language = 'en') {
+  return {
+    patientName: '',
+    mainConcern: '',
+    duration: '',
+    severity: '',
+    symptomCharacter: '',
+    associatedSymptoms: [],
+    medicalHistory: [],
+    allergies: [],
+    medications: [],
+    activeLanguage: language,
+    stage: 'greeting',
+    isComplete: false,
+    turnCount: 0,
+  };
+}
+
 export function setupWebSocket(wss) {
   wss.on('connection', (ws, req) => {
     const sessionId = `CALL-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -22,24 +40,11 @@ export function setupWebSocket(wss) {
       stage: 'greeting',
       turnCount: 0,
       transcript: [],
-      state: {
-        patientName: '',
-        mainConcern: '',
-        duration: '',
-        severity: '',
-        symptomCharacter: '',
-        associatedSymptoms: [],
-        medicalHistory: [],
-        allergies: [],
-        medications: [],
-        activeLanguage: 'en',
-        stage: 'greeting',
-        isComplete: false,
-      },
+      state: createInitialScreeningState(),
       audioManager: new AudioBufferManager(),
       isProcessing: false,
       isAgentSpeaking: false,
-      abortController: null,
+      speechGenerationId: 0,
     };
 
     sessionStore.set(sessionId, session);
@@ -105,6 +110,25 @@ function sendWsMessage(ws, type, payload = {}, sessionId = '') {
   }
 }
 
+// Browser speech recognition can occasionally hear speaker echo or background noise
+// as a short acknowledgement (for example, "thank you"). Do not use those strings as
+// a fallback user turn when server-side STT did not produce meaningful speech.
+function isMeaningfulLiveText(text) {
+  const normalized = (text || '').trim().toLowerCase().replace(/[.!?,]+$/g, '');
+  if (!normalized) return false;
+  const acknowledgements = new Set([
+    'thank you', 'thanks', 'thankyou', 'ok', 'okay', 'hmm', 'hm', 'yeah', 'yes',
+    'haan', 'han', 'ji', 'theek hai', 'achha', 'accha', 'ठीक है', 'हाँ', 'हां', 'जी'
+  ]);
+  return !acknowledgements.has(normalized);
+}
+
+function isMeaningfulUserTurn(text) {
+  const normalized = (text || '').trim().toLowerCase().replace(/[.!?,]+$/g, '');
+  if (!normalized) return false;
+  return !/^(?:thank you(?: for watching)?|thanks|thankyou|ok|okay|hmm|hm|yeah|yes|haan|han|ji|theek hai|achha|accha|ठीक है|हाँ|हां|जी)$/.test(normalized);
+}
+
 async function handleClientMessage(session, msg) {
   const { ws, sessionId } = session;
   const { type, payload } = msg;
@@ -117,6 +141,9 @@ async function handleClientMessage(session, msg) {
       session.activeLanguage = session.languageMode === 'hi' ? 'hi' : 'en';
       session.transcript = [];
       session.audioManager.clear();
+      session.state = createInitialScreeningState(session.activeLanguage);
+      session.isProcessing = false;
+      session.isAgentSpeaking = false;
 
       // Generate Greeting
       const greeting = getInitialGreeting(session.activeLanguage);
@@ -148,10 +175,11 @@ async function handleClientMessage(session, msg) {
       // Synthesize Greeting Audio
       sendWsMessage(ws, 'agent_speaking_start', { text: greeting.spokenText });
       session.isAgentSpeaking = true;
+      const greetingSpeechId = ++session.speechGenerationId;
 
       try {
         const { audioBase64 } = await synthesizeSpeech(greeting.spokenText, greeting.language);
-        if (audioBase64) {
+        if (audioBase64 && greetingSpeechId === session.speechGenerationId && session.isAgentSpeaking) {
           sendWsMessage(ws, 'audio_chunk', {
             audioBase64,
             mimeType: 'audio/mp3',
@@ -161,8 +189,10 @@ async function handleClientMessage(session, msg) {
       } catch (ttsErr) {
         logger.error('Failed to synthesize greeting TTS:', ttsErr.message);
       } finally {
-        sendWsMessage(ws, 'agent_speaking_end', {});
-        session.isAgentSpeaking = false;
+        if (greetingSpeechId === session.speechGenerationId) {
+          sendWsMessage(ws, 'agent_speaking_end', {});
+          session.isAgentSpeaking = false;
+        }
       }
       break;
     }
@@ -179,6 +209,7 @@ async function handleClientMessage(session, msg) {
     case 'barge_in': {
       logger.voice(`Barge-in received for session [${sessionId}]. Interrupting AI speech.`);
       session.isAgentSpeaking = false;
+      session.speechGenerationId += 1;
       session.isProcessing = false;
       sendWsMessage(ws, 'agent_speaking_end', { interrupted: true });
       break;
@@ -189,24 +220,57 @@ async function handleClientMessage(session, msg) {
         logger.warn('Turn processing already in progress. Ignoring duplicate turn.');
         return;
       }
+      if (session.state.isComplete) {
+        logger.info(`Ignoring audio after completed call [${sessionId}]`);
+        sendWsMessage(ws, 'turn_ignored', { reason: 'call_complete' });
+        return;
+      }
 
       session.isProcessing = true;
       sendWsMessage(ws, 'agent_thinking', { status: 'transcribing' });
 
       try {
-        const audioBuffer = session.audioManager.getCombinedBuffer();
+        // If complete turn audio was sent directly in payload, use it directly
+        let audioBuffer = null;
+        if (payload?.audioBase64) {
+          const directBuffer = base64ToBuffer(payload.audioBase64);
+          if (directBuffer && directBuffer.length > 0) {
+            audioBuffer = directBuffer;
+          }
+        }
+
+        if (!audioBuffer || audioBuffer.length === 0) {
+          audioBuffer = session.audioManager.getCombinedBuffer();
+        }
         session.audioManager.clear();
 
         const userTurnIndex = session.transcript.filter(m => m.role === 'user').length;
         
-        // 1. Transcribe Audio
+        // 1. Transcribe Audio via server STT
         const { text, language: detectedLang, isSilent } = await transcribeAudio(
           audioBuffer,
           session.languageMode,
           userTurnIndex
         );
 
-        logger.voice(`Transcribed user speech: "${text}" (Detected lang: ${detectedLang}, isSilent: ${isSilent})`);
+        // Fallback to client-recognized liveText if audio STT produced empty or silence
+        let finalUserText = '';
+        if (text && isMeaningfulUserTurn(text)) {
+          finalUserText = text.trim();
+        } else if (isMeaningfulUserTurn(payload?.liveText)) {
+          finalUserText = payload.liveText.trim();
+          logger.info(`Using client-side speech recognition text: "${finalUserText}"`);
+        }
+
+        // Ignore acknowledgement-only audio instead of adding it to the clinical transcript.
+        if (!finalUserText && ((text && text.trim()) || (payload?.liveText && payload.liveText.trim()))) {
+          sendWsMessage(ws, 'turn_ignored', { reason: 'acknowledgement' });
+          return;
+        }
+
+        let isFinalSilent = !finalUserText || isSilent;
+
+        logger.voice(`Processed user speech: "${finalUserText}" (Detected lang: ${detectedLang || session.activeLanguage}, isSilent: ${isFinalSilent})`);
 
         if (detectedLang) {
           session.activeLanguage = detectedLang;
@@ -214,15 +278,14 @@ async function handleClientMessage(session, msg) {
         }
 
         // Send user transcript message
-        const userMsg = {
-          id: `msg-${Date.now()}-u`,
-          role: 'user',
-          content: text || (isSilent ? '[Silence / Inaudible audio]' : ''),
-          timestamp: Date.now(),
-          language: session.activeLanguage,
-        };
-
-        if (text && text.trim().length > 0) {
+        if (finalUserText && finalUserText.length > 0) {
+          const userMsg = {
+            id: `msg-${Date.now()}-u`,
+            role: 'user',
+            content: finalUserText,
+            timestamp: Date.now(),
+            language: session.activeLanguage,
+          };
           session.transcript.push(userMsg);
           sendWsMessage(ws, 'transcript_update', {
             message: userMsg,
@@ -234,10 +297,10 @@ async function handleClientMessage(session, msg) {
 
         // 2. Generate Adaptive LLM Response
         const turnResult = await processConversationTurn({
-          userText: text,
+          userText: finalUserText,
           transcript: session.transcript,
           currentState: session.state,
-          isSilence,
+          isSilence: isFinalSilent,
           languageMode: session.languageMode,
         });
 
@@ -288,10 +351,11 @@ async function handleClientMessage(session, msg) {
         // 3. Synthesize Speech & Stream Audio
         sendWsMessage(ws, 'agent_speaking_start', { text: spokenText });
         session.isAgentSpeaking = true;
+        const speechGenerationId = ++session.speechGenerationId;
 
         const { audioBase64 } = await synthesizeSpeech(spokenText, agentLang || session.activeLanguage);
 
-        if (audioBase64) {
+        if (audioBase64 && speechGenerationId === session.speechGenerationId && session.isAgentSpeaking) {
           sendWsMessage(ws, 'audio_chunk', {
             audioBase64,
             mimeType: 'audio/mp3',
@@ -299,15 +363,14 @@ async function handleClientMessage(session, msg) {
           });
         }
 
-        sendWsMessage(ws, 'agent_speaking_end', {});
-        session.isAgentSpeaking = false;
+        if (speechGenerationId === session.speechGenerationId) {
+          sendWsMessage(ws, 'agent_speaking_end', {});
+          session.isAgentSpeaking = false;
+        }
 
-        // If intake conversation reached natural completion, trigger auto report
+        // Mark intake as ready for completion when patient finishes questions
         if (session.state.isComplete) {
-          logger.success(`Intake completed naturally for session [${sessionId}]. Synthesizing report...`);
-          setTimeout(async () => {
-            await handleEndCall(session);
-          }, 1500);
+          logger.info(`Intake completed naturally for session [${sessionId}]. Awaiting user to click End Call.`);
         }
       } catch (err) {
         logger.error(`Error in conversation turn for [${sessionId}]:`, err.message);
@@ -321,7 +384,14 @@ async function handleClientMessage(session, msg) {
     case 'text_turn': {
       // Text fallback mode
       const userText = payload?.text || '';
-      if (!userText.trim()) return;
+      if (!isMeaningfulUserTurn(userText)) {
+        sendWsMessage(ws, 'turn_ignored', { reason: 'acknowledgement' });
+        return;
+      }
+      if (session.state.isComplete) {
+        sendWsMessage(ws, 'turn_ignored', { reason: 'call_complete' });
+        return;
+      }
 
       session.isProcessing = true;
       sendWsMessage(ws, 'agent_thinking', { status: 'generating_response' });
@@ -376,15 +446,20 @@ async function handleClientMessage(session, msg) {
 
         // Synthesize audio
         sendWsMessage(ws, 'agent_speaking_start', { text: spokenText });
+        session.isAgentSpeaking = true;
+        const speechGenerationId = ++session.speechGenerationId;
         const { audioBase64 } = await synthesizeSpeech(spokenText, agentLang || session.activeLanguage);
-        if (audioBase64) {
+        if (audioBase64 && speechGenerationId === session.speechGenerationId && session.isAgentSpeaking) {
           sendWsMessage(ws, 'audio_chunk', {
             audioBase64,
             mimeType: 'audio/mp3',
             messageId: assistantMsg.id
           });
         }
-        sendWsMessage(ws, 'agent_speaking_end', {});
+        if (speechGenerationId === session.speechGenerationId) {
+          sendWsMessage(ws, 'agent_speaking_end', {});
+          session.isAgentSpeaking = false;
+        }
       } catch (err) {
         logger.error(`Text turn error for [${sessionId}]:`, err.message);
       } finally {

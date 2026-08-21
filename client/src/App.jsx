@@ -21,6 +21,7 @@ export default function App() {
     languageMode,
     activeLanguage,
     callMode,
+    interimText,
     transcript,
     screeningState,
     report,
@@ -44,7 +45,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-navy-950 text-slate-100 flex flex-col font-sans selection:bg-brand-500 selection:text-white">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-teal-100 selection:text-teal-900">
       
       {/* Top Navigation */}
       <Navbar
@@ -60,12 +61,12 @@ export default function App() {
         {/* Loading / Synthesizing Report Overlay */}
         {isGeneratingReport && (
           <div className="flex flex-col items-center justify-center p-12 text-center space-y-4 animate-fade-in">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-500 to-indigo-600 flex items-center justify-center shadow-2xl shadow-brand-500/30 animate-pulse">
-              <Loader2 className="w-8 h-8 text-navy-950 animate-spin" />
+            <div className="w-16 h-16 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center shadow-soft-teal">
+              <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
             </div>
             <div className="space-y-1">
-              <h2 className="text-xl font-bold text-white tracking-tight">Synthesizing Clinical Report...</h2>
-              <p className="text-xs text-slate-400 max-w-sm">
+              <h2 className="text-xl font-bold text-slate-800 tracking-tight">Synthesizing Clinical Report...</h2>
+              <p className="text-xs text-slate-500 max-w-sm">
                 Our clinical AI is analyzing dialogue turns, extracting symptoms, and generating the doctor-ready triage assessment.
               </p>
             </div>
@@ -81,6 +82,7 @@ export default function App() {
             thinkingStatus={thinkingStatus}
             mediaStream={mediaStream}
             activeLanguage={activeLanguage}
+            interimText={interimText}
             transcript={transcript}
             screeningState={screeningState}
             callMode={callMode}
@@ -121,9 +123,9 @@ export default function App() {
       />
 
       {/* Global Footer */}
-      <footer className="w-full border-t border-slate-800/60 py-4 px-6 text-center text-[11px] text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 max-w-7xl mx-auto">
+      <footer className="w-full border-t border-slate-200 py-4 px-6 text-center text-[11px] text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 max-w-7xl mx-auto">
         <div className="flex items-center gap-2">
-          <Activity className="w-3.5 h-3.5 text-brand-400" />
+          <Activity className="w-3.5 h-3.5 text-teal-600" />
           <span>AuraHealth Voice AI • Real-Time WebSockets • Bilingual Health Intake</span>
         </div>
         <div>

@@ -103,6 +103,6 @@ server.listen(config.port, () => {
   logger.info(`🔌 WebSocket Server endpoint active on ws://localhost:${config.port}/ws`);
   logger.info(`🎙️ STT Engine: [${providers.stt}] | 🧠 LLM Engine: [${providers.llm}] | 🔊 TTS Engine: [${providers.tts}]`);
   if (!providers.hasGroq && !providers.hasOpenAI && !providers.hasSarvam) {
-    logger.warn('💡 No API keys detected in .env. Running in Zero-Key Smart Simulation & Fallback Mode.');
+    logger.warn('💡 No API keys detected. Running the stateful dialogue demo; configure an STT provider for server-side transcription.');
   }
 });

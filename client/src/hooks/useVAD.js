@@ -8,9 +8,9 @@ export function useVAD({
   isEnabled = false,
   onSpeechStart,
   onSpeechEnd,
-  silenceThresholdMs = 1800,
-  minSpeechDurationMs = 600,
-  energyThreshold = 0.02
+  silenceThresholdMs = 1600,
+  minSpeechDurationMs = 500,
+  energyThreshold = 0.025
 }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const audioContextRef = useRef(null);

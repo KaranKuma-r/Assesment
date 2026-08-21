@@ -1,288 +1,187 @@
-# 🩺 AuraHealth AI — Conversational Voice Health Screening & Intake
+# AuraHealth AI
 
-> **Real-time, bilingual Voice-AI health screening agent built with JavaScript, React, and Node.js.**  
-> Conducts an adaptive clinical intake conversation, detects language seamlessly (English / Hindi / Hinglish), handles speech barge-in (interruptions), and synthesizes a structured doctor-ready clinical report with automated triage risk scoring.
+Real-time, turn-based voice health-screening demo built with React, Node.js, Express, and WebSockets. The agent conducts a basic intake in English or Hindi/Hinglish and generates a structured report when the call ends.
 
----
+> This is a pre-consultation intake demo, not medical advice or an emergency service. For urgent symptoms, contact local emergency services or a licensed clinician.
 
-## 📄 Architecture & Workflow PDF Document
-A complete **multi-page Architectural & Workflow Specification PDF** has been generated and included in this repository:
-- **Root Location:** [`HEALTH_VOICE_AI_ARCHITECTURE_AND_WORKFLOW.pdf`](./HEALTH_VOICE_AI_ARCHITECTURE_AND_WORKFLOW.pdf)
-- **Docs Location:** [`docs/HEALTH_VOICE_AI_ARCHITECTURE_AND_WORKFLOW.pdf`](./docs/HEALTH_VOICE_AI_ARCHITECTURE_AND_WORKFLOW.pdf)
-- **Regenerate Anytime:** `npm run generate-pdf`
+## What it does
 
----
+- Starts and ends a voice screening call over WebSockets.
+- Captures each user turn with `MediaRecorder`, transcribes it, sends it to an LLM, and plays the generated response using TTS.
+- Supports hands-free voice activity detection (VAD) and a hold-to-talk mode.
+- Supports English, Hindi, and basic Hinglish detection.
+- Keeps session transcript and extracted screening state.
+- Handles silence, typed fallback messages, partial calls, and stale TTS audio after an interruption.
+- Creates a structured health report with a transcript, triage summary, copy action, and PDF export.
 
-## 🌟 Key Features
+## Architecture
 
-### 1. 🎙️ The Live Voice Call
-- **Real-Time WebSocket Streaming:** Bi-directional binary and Base64 audio streaming over `ws://localhost:5000/ws` — no monolithic batch uploads.
-- **Adaptive Clinical Turn-Taking:** The AI greets the patient, asks **one screening question at a time** (Name → Chief Complaint → Onset & Duration → Severity 1-10 → Associated Symptoms → Medical History & Allergies), clarifies vague responses, and maintains context across turns.
-- **Bilingual & Language Switching:** Operates in **English** and **Hindi (हिन्दी / Hinglish)** with real-time language detection and mid-conversation language switching.
-- **Push-to-Talk & Hands-Free VAD Modes:** Users can either hold the microphone button / keyboard <kbd>Spacebar</kbd>, or use automatic voice activity detection (VAD) with silence threshold detection.
-- **Barge-In (Interruption Handling):** If the user begins speaking while the AI is talking, active audio playback is stopped instantly and the server aborts pending speech synthesis.
-
-### 2. ⚡ The Low-Latency Speech Pipeline
-- **Speech-to-Text (STT):** Pluggable providers: **Groq Whisper** (`whisper-large-v3`, ~150ms latency), **OpenAI Whisper** (`whisper-1`), **Sarvam AI Saarika** (`saarika:v2` for Indian languages), and intelligent fallback STT.
-- **Language Model (LLM):** **Groq Llama 3.3 70B Versatile** or **OpenAI GPT-4o-mini** with clinical voice intake prompt constraints (<30 words/turn, empathetic acknowledgement, hidden JSON entity extraction).
-- **Text-to-Speech (TTS):** **OpenAI Neural TTS** (`nova`/`alloy`), **Sarvam AI Bulbul** (`ananya` Hindi voice), and **Google TTS Engine** (built-in free zero-key streaming fallback).
-
-### 3. 📋 Structured Clinical Health Report
-- **Physician-Ready Synthesis:** Translates spoken informal dialogue into formal medical terminology (e.g. *"head feels pounding"* → *"Acute throbbing cephalalgia"*).
-- **Automated Triage Risk Level:** Evaluates patient symptoms into **LOW**, **MODERATE**, **HIGH**, or **EMERGENCY** with urgency level and clinical rationale.
-- **Graceful Incomplete Call Handling:** If a call is terminated after 1-2 turns, the system marks the report status as `partial` or `minimal` without crashing or displaying garbage data.
-- **Export Capabilities:** One-click **PDF Download** (using `jsPDF`), **Copy Clinical Summary**, and full audited conversation transcript inspection.
-
----
-
-## 🏛️ System Architecture
-
-```
- +---------------------------------------------------------------------------------------+
- |                                  CLIENT LAYER (React + Vite)                          |
- |  +--------------------+  +----------------------+  +-------------------------------+  |
- |  |  PreCallScreen     |  |  Live CallInterface  |  |  Structured HealthReport      |  |
- |  |  (Config & CTA)    |  |  (Audio Orb & State) |  |  (Triage & PDF Export)        |  |
- |  +--------------------+  +----------------------+  +-------------------------------+  |
- |        |                             |                                 ^              |
- |        v                             v                                 |              |
- |  +---------------------------------------------------------------------------------+  |
- |  | useVoiceCall Hook: MediaRecorder -> Web Audio Analyser -> WebSocket Client (ws) |  |
- +---------------------------------------------------------------------------------------+
-                                        |  WebSocket Stream (ws://localhost:5000/ws)
-                                        v
- +---------------------------------------------------------------------------------------+
- |                                 BACKEND LAYER (Node.js Server)                        |
- |  +---------------------------------------------------------------------------------+  |
- |  | callHandler.js: Session Manager, AudioBufferManager, Turn Coordinator, Barge-In |  |
- |  +---------------------------------------------------------------------------------+  |
- |        |                              |                                |              |
- |        v                              v                                v              |
- |  +--------------------+    +----------------------+    +---------------------------+  |
- |  |  STT Pipeline      |    |  LLM Dialog & State  |    |  TTS Pipeline             |  |
- |  |  - Groq Whisper    | -> |  - Llama 3.3 70B     | -> |  - OpenAI TTS (Nova)      |  |
- |  |  - OpenAI Whisper  |    |  - GPT-4o-mini       |    |  - Sarvam Bulbul (Hindi)  |  |
- |  |  - Sarvam Saarika  |    |  - State Extractor   |    |  - Google TTS (Zero-Key)  |  |
- |  +--------------------+    +----------------------+    +---------------------------+  |
- |                                       | (On Call End)                                 |
- |                                       v                                               |
- |                    +--------------------------------------+                           |
- |                    | reportGenerator.js: Clinical SBAR    |                           |
- |                    | Triage Engine (Low/Mod/High/Emerg)   |                           |
- |                    +--------------------------------------+                           |
- +---------------------------------------------------------------------------------------+
+```text
+React client
+  MediaRecorder / browser speech recognition / VAD
+        | WebSocket turn messages
+        v
+Node.js server
+  STT -> LLM conversation manager -> TTS
+        |
+        v
+Structured health report
 ```
 
----
+The interaction is intentionally turn-based: user speaks -> audio is processed -> the AI replies with audio. This keeps the implementation reliable for a take-home while still using real-time-oriented WebSocket transport.
 
-## 📁 Source Code Structure (`src`)
+## Requirements
 
-```
-D:\Tech Assessment 02
-├── client/                               # Frontend: React + Vite + TailwindCSS (Pure JavaScript)
-│   ├── index.html                        # HTML entry point
-│   ├── package.json                      # React, Tailwind, Lucide-React, jsPDF
-│   ├── vite.config.js                    # Vite bundler with API and WebSocket proxies
-│   ├── tailwind.config.js                # Custom medical theme colors & animations
-│   ├── src/
-│   │   ├── main.jsx                      # React root entry
-│   │   ├── App.jsx                       # Master view coordinator (PreCall -> Call -> Report)
-│   │   ├── components/
-│   │   │   ├── Navbar.jsx                # Header, WS connection badge, language selector
-│   │   │   ├── PreCallScreen.jsx         # Landing screen, mode toggle (PTT / VAD), disclaimer
-│   │   │   ├── CallInterface.jsx         # Active call room, visualizer orb, spacebar listener
-│   │   │   ├── AudioOrb.jsx              # Central glowing visualizer & Web Audio canvas
-│   │   │   ├── LiveClinicalState.jsx     # Live real-time extracted clinical entities side card
-│   │   │   ├── LiveTranscript.jsx        # Full turn-by-turn chat transcript with timestamps
-│   │   │   ├── HealthReport.jsx          # Doctor-ready triage summary, vitals, SBAR note, PDF export
-│   │   │   └── SettingsModal.jsx         # Telemetry modal showing active STT/LLM/TTS providers
-│   │   ├── hooks/
-│   │   │   ├── useVoiceCall.js           # Core hook: WebSockets, MediaRecorder, Audio queue
-│   │   │   ├── useAudioVisualizer.js     # Web Audio API AnalyserNode & canvas renderer
-│   │   │   └── useVAD.js                 # RMS energy-based voice activity detector
-│   │   ├── utils/
-│   │   │   └── pdfExport.js              # Client-side jsPDF medical summary generator
-│   │   └── styles/
-│   │       └── index.css                 # Glassmorphic classes, custom scrollbars, animations
-│
-├── server/                               # Backend: Node.js + Express + WebSockets (Pure JavaScript)
-│   ├── package.json                      # Express, ws, openai, groq-sdk, axios, form-data
-│   ├── .env.example                      # Environment variables template
-│   └── src/
-│       ├── server.js                     # Express HTTP + WebSocket server & REST endpoints
-│       ├── config.js                     # Provider auto-detection, models, voices, environment
-│       ├── websocket/
-│       │   └── callHandler.js            # WS session manager, audio streaming, barge-in, turns
-│       ├── services/
-│       │   ├── stt/                      # Speech-To-Text Subsystem
-│       │   │   ├── index.js              # Unified STT router with multi-provider fallback
-│       │   │   ├── groqWhisper.js        # Ultra-fast Groq Whisper-large-v3
-│       │   │   ├── openaiWhisper.js      # OpenAI Whisper transcription
-│       │   │   ├── sarvamSTT.js          # Sarvam AI Saarika Hindi STT
-│       │   │   └── mockSTT.js            # Intelligent fallback for zero-key developer testing
-│       │   ├── llm/                      # Language Model & Clinical Intelligence
-│       │   │   ├── prompts.js            # Voice-first clinical intake system prompt & guidelines
-│       │   │   ├── conversationalAgent.js# Adaptive multi-turn dialogue manager & state extractor
-│       │   │   ├── reportGenerator.js    # Post-call Clinical Summary & Triage Engine (SBAR)
-│       │   │   └── languageDetector.js   # Devanagari Hindi & Roman Hinglish detector
-│       │   └── tts/                      # Text-To-Speech Subsystem
-│       │       ├── index.js              # Unified TTS router & Base64 encoder
-│       │       ├── openaiTTS.js          # OpenAI Nova/Alloy neural voice
-│       │       ├── sarvamTTS.js          # Sarvam AI Bulbul Hindi voice
-│       │       └── googleTTS.js          # Google TTS engine (zero-key streaming fallback)
-│       └── utils/
-│           ├── audioUtils.js             # Buffer conversions, AudioBufferManager, Base64 helpers
-│           └── logger.js                 # Formatted color console logger
-│
-├── docs/                                 # Documentation & PDF Generator
-│   ├── generate-pdf.js                   # High-res PDF generation engine using PDFKit
-│   └── HEALTH_VOICE_AI_ARCHITECTURE_AND_WORKFLOW.pdf
-└── README.md
-```
+- Node.js 18 or later
+- npm 9 or later
+- A modern Chromium-based browser for microphone access and optional browser speech-recognition fallback
+- At least one STT provider key for reliable server-side voice transcription
+- At least one LLM provider key for adaptive AI responses
+- A TTS key is recommended; an internet-dependent Google Translate TTS fallback is available
 
----
+## Setup
 
-## 🚀 Quick Start Guide
+Install all dependencies from the project root:
 
-### Prerequisites
-- **Node.js**: v18.0.0 or higher (v22.x tested and recommended)
-- **npm**: v9.0.0 or higher
-
-### 1. Install Dependencies
-Run the unified installer from the project root:
 ```bash
 npm run install:all
 ```
-*(Or run `npm install` inside root, `server/`, and `client/` directories).*
 
----
+Create a local environment file by copying the root template:
 
-### 2. Configure Environment Variables (Optional)
-Copy `.env.example` in `server/` to `server/.env`:
 ```bash
-cp server/.env.example server/.env
+cp .env.example .env
 ```
 
-Edit `server/.env` with your API keys:
-```env
-PORT=5000
+On Windows PowerShell:
 
-# Recommended for ultra-fast STT & LLM (~150ms)
-GROQ_API_KEY=gsk_...
-GROQ_MODEL=llama-3.3-70b-versatile
-
-# Alternative STT, LLM & TTS
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_VOICE=nova
-
-# Indian Languages Hindi/Hinglish STT & TTS
-SARVAM_API_KEY=...
-SARVAM_VOICE=ananya
-
-# Default Language Mode (auto, en, hi)
-DEFAULT_LANGUAGE=auto
+```powershell
+Copy-Item .env.example .env
 ```
 
-> **💡 Zero-Key Demonstration Mode:** If no API keys are provided in `.env`, the server automatically activates its **Intelligent Zero-Key Fallback Mode** (Google TTS streaming + simulated clinical dialogue engine), allowing full functionality testing out of the box!
+Then add the API keys you intend to use to `.env`. Do not commit this file.
 
----
+Start the app:
 
-### 3. Run Development Server
-Start both the Node.js backend (`:5000`) and Vite React frontend (`:5173`) concurrently:
 ```bash
 npm run dev
 ```
 
-Open your browser and navigate to:
-```
-http://localhost:5173
+Open `http://localhost:5173`. The Node/WebSocket server runs on `http://localhost:5000` and `ws://localhost:5000/ws`.
+
+For a separately hosted backend, set the client build variable before building:
+
+```env
+VITE_WS_URL=wss://your-api-domain.example/ws
 ```
 
----
+Build the client for production:
 
-### 4. Build for Production
-To compile and bundle both the backend and client:
 ```bash
 npm run build
 ```
 
----
+## API keys and provider configuration
 
-## 🛡️ Failure Handling & Edge Case Matrix
+Only add keys for providers you use. The server chooses configured providers automatically unless overridden.
 
-| Scenario | System Detection | Recovery Strategy |
-| :--- | :--- | :--- |
-| **Silence / Background Noise** | Audio buffer < 400 bytes or empty transcript | AI gives polite verbal prompt: *"I didn't quite catch that. Could you please repeat?"* without losing stage context. |
-| **Barge-In (Interruption)** | User speaks while AI audio is playing | Client immediately halts HTML5 audio, purges playback queue, and sends `barge_in` event to abort server synthesis. |
-| **Mid-Call Language Switch** | User switches between English and Hindi/Hinglish | Language detector identifies script or phonetic keywords, adapts `activeLanguage`, and responds in the new language. |
-| **Short / Incomplete Call** | User ends call after only 1 exchange | Report generator marks status as `partial` or `minimal`, avoids hallucinations, and summarizes only stated parameters. |
-| **API Provider Outage** | Rate limit or timeout on primary provider | Automatic fallback chain: Groq → OpenAI → Google TTS / Mock fallback. |
-| **Microphone Restricted** | Browser permission blocked | UI displays notification banner + activates interactive text fallback drawer. |
+| Purpose | Recommended key | Environment variable | Notes |
+| --- | --- | --- | --- |
+| Speech-to-text and LLM | Groq | `GROQ_API_KEY` | Recommended single-key path. Uses Groq Whisper for STT and the configured Groq model for conversation/report generation. |
+| Speech-to-text, LLM, and TTS | OpenAI | `OPENAI_API_KEY` | Can provide Whisper STT, GPT conversation/report generation, and OpenAI TTS. |
+| Hindi/Hinglish STT and TTS | Sarvam | `SARVAM_API_KEY` | Recommended for Indian-language speech. Sarvam TTS is preferred for Hindi responses. |
+| Optional model override | - | `GROQ_MODEL`, `OPENAI_MODEL` | Defaults are defined in `.env.example`. |
+| Optional voice override | - | `OPENAI_VOICE`, `SARVAM_VOICE` | Select a provider-supported voice. |
 
----
+### Recommended minimal configuration
 
-## 🩺 Clinical Triage Report Output Schema
+For the most reliable English demo, paste a valid Groq key into `.env`:
 
-When a call completes, the system generates a structured JSON summary conforming to this clinical schema:
-
-```json
-{
-  "completionStatus": "complete",
-  "completionPercentage": 95,
-  "patientInfo": {
-    "name": "Rahul Sharma",
-    "estimatedAge": "Adult",
-    "preferredLanguage": "English",
-    "conversationLanguage": "English"
-  },
-  "chiefComplaint": {
-    "primarySymptom": "Acute throbbing headache and mild fever",
-    "patientDescription": "Bad headache and fever since yesterday",
-    "anatomicalRegion": "Cranial / Temporal"
-  },
-  "historyOfPresentIllness": {
-    "onsetAndDuration": "24 hours (since yesterday)",
-    "severityScore": 6,
-    "severityClassification": "Moderate",
-    "symptomCharacteristics": "Throbbing sensation in temples with mild nausea and photophobia",
-    "relievingFactors": "Paracetamol provided partial relief"
-  },
-  "associatedSymptoms": ["Mild fever", "Nausea", "Light sensitivity"],
-  "medicalBackground": {
-    "knownConditions": ["None reported"],
-    "currentMedications": ["Paracetamol OTC"],
-    "knownAllergies": ["No known drug allergies (NKDA)"]
-  },
-  "triageAssessment": {
-    "riskLevel": "MODERATE",
-    "recommendedUrgency": "Next Day Clinic",
-    "clinicalRationale": "Patient reports acute headache with systemic symptoms (fever, photophobia). Stable vital presentation but requires in-person clinical exam to exclude secondary headache etiologies.",
-    "identifiedRedFlags": []
-  },
-  "recommendedActionItems": [
-    "Schedule physician consultation within 24-48 hours.",
-    "Maintain adequate oral hydration and rest in a dim environment.",
-    "Seek immediate emergency care if neck stiffness, high fever (>103°F), or neurological deficits develop."
-  ],
-  "doctorClinicalNote": "SBAR Summary: Patient Rahul Sharma presents for pre-consultation voice triage reporting a 24-hour history of moderate throbbing headache (6/10) with low-grade fever and photophobia. Relieved partially by OTC analgesics. No reported prior comorbidities. Triage level: Moderate. Scheduled for physician evaluation."
-}
+```env
+GROQ_API_KEY=gsk_your_groq_key_here
 ```
 
----
+For a Hindi/Hinglish demo, add Sarvam as well:
 
-## 🧪 Submission Evaluation Checklist
+```env
+GROQ_API_KEY=gsk_your_groq_key_here
+SARVAM_API_KEY=your_sarvam_key_here
+```
 
-- [x] **The Call Works:** Real-time bi-directional voice interaction over WebSockets with live visualizer orb.
-- [x] **Tech Stack:** 100% JavaScript (React + Vite frontend, Node.js backend).
-- [x] **Pipeline Architecture:** Modular STT (Groq Whisper / OpenAI Whisper / Sarvam) → LLM (Llama 3.3 / GPT-4o-mini) → TTS (OpenAI / Sarvam / Google).
-- [x] **Conversation State:** Tracks patient name, chief complaint, duration, severity, and associated symptoms across multi-turn exchanges.
-- [x] **Bilingual Support:** Full English & Hindi / Hinglish voice dialogue with real-time auto-detection.
-- [x] **Barge-In Handling:** Instant speech interruption.
-- [x] **Structured Health Report:** Doctor-ready triage synthesis with SBAR note, PDF export, and graceful handling of short calls.
-- [x] **Comprehensive PDF:** Architectural and workflow PDF documentation generated (`HEALTH_VOICE_AI_ARCHITECTURE_AND_WORKFLOW.pdf`).
+For an OpenAI-only configuration:
 
----
+```env
+OPENAI_API_KEY=sk-your_openai_key_here
+```
 
-## 📜 License
-MIT License. Created for the Technical Assessment.
+Never paste API keys into the README, frontend code, or a public GitHub repository. Keep them only in the ignored `.env` file.
+
+### Provider overrides
+
+Normally, leave these blank:
+
+```env
+STT_PROVIDER=
+LLM_PROVIDER=
+TTS_PROVIDER=
+```
+
+To force a configured provider, set one of:
+
+```env
+STT_PROVIDER=groq
+LLM_PROVIDER=groq
+TTS_PROVIDER=sarvam
+```
+
+Supported values are `groq`, `openai`, `sarvam` where applicable, and `mock` for the deterministic LLM demo flow.
+
+### No-LLM-key demo mode
+
+If no LLM key is configured, the app uses a deterministic, stateful intake sequence that advances through the screening fields. For microphone transcription, configure Groq, OpenAI, or Sarvam. In supported browsers, browser speech recognition can provide live text as a fallback.
+
+## Call flow
+
+1. Select language mode and either Hands-Free or Push to Talk.
+2. Select **Start Voice Screening Call** and grant microphone permission.
+3. Answer the agent's questions one turn at a time.
+4. Use **Hold to Talk** in push-to-talk mode, or pause after speaking in hands-free mode.
+5. Use the text input if transcription is unclear.
+6. Select **End Call** to generate the structured health report.
+
+## Failure handling
+
+| Scenario | Behavior |
+| --- | --- |
+| Silence or unusable audio | The agent asks the user to repeat the turn without clearing intake state. |
+| Provider failure | STT tries other configured providers. TTS falls back to Google Translate TTS when internet access is available. |
+| User interrupts response | Client playback stops immediately; a late TTS result is discarded instead of being played. |
+| Short call | A minimal/partial report is created without inventing missing information. |
+| No microphone | The call still opens in text-only mode; use the Type response option to continue. |
+
+## Project structure
+
+```text
+client/                 React + Vite frontend
+  src/hooks/useVoiceCall.js       WebSocket, recording, playback, and call state
+  src/components/                 Call interface and report UI
+server/                 Express + WebSocket backend
+  src/websocket/callHandler.js    Per-session turn coordinator
+  src/services/stt/               Groq, OpenAI, and Sarvam transcription
+  src/services/llm/               Conversation state and report generation
+  src/services/tts/               OpenAI, Sarvam, and Google fallback synthesis
+.env.example            Environment-variable template
+```
+
+## Limitations and next steps
+
+- This is a turn-based WebSocket voice experience, not full-duplex WebRTC.
+- TTS fallback depends on external internet access.
+- The screening is not a diagnosis and should not be used for emergency triage.
+- Production work would add authenticated sessions, encrypted data storage, deterministic emergency escalation, robust medical safety review, and WebRTC media transport.
+
+## Tech stack
+
+- Frontend: React, Vite, Tailwind CSS
+- Backend: Node.js, Express, `ws`
+- AI providers: Groq, OpenAI, Sarvam; Google Translate TTS fallback

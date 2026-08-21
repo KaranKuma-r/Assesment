@@ -2,7 +2,6 @@ import { config, getEffectiveProviders } from '../../config.js';
 import { transcribeWithOpenAI } from './openaiWhisper.js';
 import { transcribeWithGroq } from './groqWhisper.js';
 import { transcribeWithSarvam } from './sarvamSTT.js';
-import { transcribeWithMock } from './mockSTT.js';
 import { logger } from '../../utils/logger.js';
 
 export async function transcribeAudio(audioBuffer, languageHint = 'auto', turnIndex = 0) {
@@ -25,7 +24,7 @@ export async function transcribeAudio(audioBuffer, languageHint = 'auto', turnIn
     } else if (provider === 'sarvam' && config.sarvamApiKey) {
       return await transcribeWithSarvam(audioBuffer, lang);
     } else {
-      return await transcribeWithMock(audioBuffer, languageHint, turnIndex);
+      return { text: '', language: languageHint === 'auto' ? 'en' : languageHint, isSilent: true };
     }
   } catch (primaryError) {
     logger.warn(`Primary STT provider [${provider}] failed: ${primaryError.message}. Attempting fallback...`);
@@ -39,6 +38,14 @@ export async function transcribeAudio(audioBuffer, languageHint = 'auto', turnIn
       }
     }
 
+    if (provider !== 'sarvam' && config.sarvamApiKey) {
+      try {
+        return await transcribeWithSarvam(audioBuffer, lang);
+      } catch (e) {
+        logger.error('Fallback to Sarvam STT failed:', e.message);
+      }
+    }
+
     if (provider !== 'openai' && config.openaiApiKey) {
       try {
         return await transcribeWithOpenAI(audioBuffer, lang);
@@ -47,7 +54,7 @@ export async function transcribeAudio(audioBuffer, languageHint = 'auto', turnIn
       }
     }
 
-    logger.warn('All STT external providers failed or unavailable, falling back to mock STT.');
-    return await transcribeWithMock(audioBuffer, languageHint, turnIndex);
+    logger.warn('All external STT providers failed or unavailable.');
+    return { text: '', language: languageHint === 'auto' ? 'en' : languageHint, isSilent: true };
   }
 }
